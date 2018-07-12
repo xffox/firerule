@@ -1,0 +1,25 @@
+#!/sbin/openrc-run
+
+COMMAND="/usr/bin/firerule-monitor"
+WORKDIR="${FIRERULE_WORKDIR:-/etc/firerule}"
+PIDFILE="/var/run/firerule-monitor.pid"
+LOGFILE="/var/log/firerule-monitor.log"
+
+depend() {
+    need dbus
+}
+
+start() {
+    ebegin "Starting firerule-monitor daemon"
+    /sbin/start-stop-daemon -b -m -p "${PIDFILE}" --start --quiet \
+    --exec "${COMMAND}" -d "${WORKDIR}" \
+    --stdout "${LOGFILE}" --stderr "${LOGFILE}" \
+    -- -p "${FIRERULE_CONF}"
+    eend $?
+}
+
+stop() {
+    ebegin "Stopping firerule-monitor daemon"
+    start-stop-daemon --stop --quiet -p "${PIDFILE}" --exec "${COMMAND}"
+    eend $?
+}

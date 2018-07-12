@@ -17,7 +17,7 @@ instance Arbitrary IPv6.IPv6 where
         b6 <- arbitrary
         b7 <- arbitrary
         b8 <- arbitrary
-        prefixLen <- choose (0, 128)
+        prefixLen <- choose (0, IPv6.ipv6bits)
         return $ IPv6.ipv6net (b1, b2, b3, b4, b5, b6, b7, b8) prefixLen
 
 newtype LimitedPrefixLen = LimitedPrefixLen W.Word8

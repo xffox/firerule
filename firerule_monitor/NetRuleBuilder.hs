@@ -16,10 +16,15 @@ import qualified NetRule as NetRule
 readNetRule :: String -> Except.ExceptT String IO NetRule.NetRule
 readNetRule path = do
     inp <- Trans.lift $
-        SIO.withFile path SIO.ReadMode $ \h -> do
-            inp <- SIO.hGetContents h
-            Exception.evaluate $ DeepSeq.rnf inp
-            return inp
+        Exception.catch
+            (SIO.withFile path SIO.ReadMode $ \h -> do
+                inp <- SIO.hGetContents h
+                Exception.evaluate $ DeepSeq.rnf inp
+                return inp)
+            (\e -> do
+                let err = show (e :: Exception.IOException)
+                fail $ Printf.printf
+                    "failed to read net rule file: %s: '%s'" err path)
     buildNetRule inp
 
 buildNetRule fr = do
@@ -44,10 +49,15 @@ buildJump _ = fail "invalid jump"
 
 buildFirewall path = do
     inp <- Trans.lift $
-        SIO.withFile path SIO.ReadMode $ \h -> do
-            inp <- SIO.hGetContents h
-            Exception.evaluate $ DeepSeq.rnf inp
-            return inp
+        Exception.catch
+            (SIO.withFile path SIO.ReadMode $ \h -> do
+                    inp <- SIO.hGetContents h
+                    Exception.evaluate $ DeepSeq.rnf inp
+                    return inp)
+            (\e -> do
+                let err = show (e :: Exception.IOException)
+                fail $ Printf.printf
+                        "failed to read firewall file: %s: '%s'" err path)
     liftEither $ RuleParser.parseFirewall inp >>= ConfBuilder.buildConf
 
 buildCondition (RuleParser.Condition as@(ns:args)) = do

@@ -13,7 +13,7 @@ instance Arbitrary IPv4.IPv4 where
         b2 <- arbitrary
         b3 <- arbitrary
         b4 <- arbitrary
-        prefixLen <- choose (0, 32)
+        prefixLen <- choose (0, IPv4.ipv4bits)
         return $ IPv4.ipv4net (b1, b2, b3, b4) prefixLen
 
 newtype LimitedPrefixLen = LimitedPrefixLen W.Word8
