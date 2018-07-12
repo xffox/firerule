@@ -1,6 +1,6 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TypeSynonymInstances #-}
-module Firerule.IPv6(IPv6, ipv6net, ipv6bits, parseIPv6) where
+module Firerule.IPv6(IPv6, ipv6net, ipv6bits, ipv6prefixLen, parseIPv6) where
 
 import qualified Data.List as List
 import qualified Data.Bits as Bits
@@ -22,8 +22,10 @@ type IPv6Bytes = (Word16, Word16, Word16, Word16,
 
 ipv6net :: IPv6Bytes -> Word8 -> IPv6
 ipv6net (b1, b2, b3, b4, b5, b6, b7, b8) prefixLen =
-    let dt = IP.packBlocks [b1, b2, b3, b4, b5, b6, b7, b8]
-     in IPv6 $ IP.IPRaw (dt .&. IP.subnetMask ipv6bits prefixLen) prefixLen
+    let prefixLen' = min ipv6bits prefixLen
+        dt = IP.packBlocks [b1, b2, b3, b4, b5, b6, b7, b8]
+     in IPv6 $ IP.IPRaw (dt .&. IP.subnetMask ipv6bits prefixLen') prefixLen'
+
 ipv6host :: IPv6Bytes -> IPv6
 ipv6host bytes = ipv6net bytes ipv6bits
 
@@ -31,6 +33,9 @@ ipv6bits :: Word8
 ipv6bits =
     let z = 0 :: IPv6Host
      in fromIntegral $ Bits.finiteBitSize z
+
+ipv6prefixLen :: IPv6 -> Word8
+ipv6prefixLen (IPv6 raw) = IP.rawPrefixLen raw
 
 instance IP.IP IPv6 IPv6Host where
     toRaw (IPv6 raw) = raw

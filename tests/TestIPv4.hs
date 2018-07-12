@@ -23,7 +23,8 @@ instance Arbitrary LimitedPrefixLen where
 
 prop_subnetsAlwaysLess :: IPv4.IPv4 -> LimitedPrefixLen -> Bool
 prop_subnetsAlwaysLess v (LimitedPrefixLen prefixLen) =
-    let subnets = IP.subnets v prefixLen
+    let subnets = IP.subnets v
+            (min IPv4.ipv4bits (IPv4.ipv4prefixLen v + prefixLen))
      in all (\sn -> (VS.mergeJoin sn v == Just v) &&
          (VS.mergeIntersect sn v == [sn])) subnets
 

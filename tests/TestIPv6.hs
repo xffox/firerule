@@ -27,7 +27,8 @@ instance Arbitrary LimitedPrefixLen where
 
 prop_subnetsAlwaysLess :: IPv6.IPv6 -> LimitedPrefixLen -> Bool
 prop_subnetsAlwaysLess v (LimitedPrefixLen prefixLen) =
-    let subnets = IP.subnets v prefixLen
+    let subnets = IP.subnets v
+            (min IPv6.ipv6bits (IPv6.ipv6prefixLen v + prefixLen))
      in all (\sn -> (VS.mergeJoin sn v == Just v) &&
          (VS.mergeIntersect sn v == [sn])) subnets
 

@@ -15,9 +15,12 @@ data NetRuleHandle = NetRuleHandle DBusNetMonitor.DBusNetMonitor
 callback nr (NM.NetworkChange info) =
     handleNetwork nr info
 
-stopNetRule (NetRuleHandle monitor) = NM.destroy monitor
+stopNetRule (NetRuleHandle monitor) = do
+    putStrLn $ "stopping monitor"
+    NM.destroy monitor
 
 runNetRule nr = do
+    putStrLn $ "starting monitor"
     monitor <- NM.init :: IO DBusNetMonitor.DBusNetMonitor
     NM.listen monitor (Just (callback nr))
     info <- NM.info monitor

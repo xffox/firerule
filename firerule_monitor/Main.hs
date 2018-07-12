@@ -1,6 +1,7 @@
 module Main where
 
 import qualified System.Posix.Signals as Signals
+import qualified System.IO as SIO
 import qualified Text.Printf as Printf
 import qualified Options.Applicative as Opt
 import qualified Control.Monad.Trans.Except as Except
@@ -30,14 +31,23 @@ main = do
       Left err -> fail err
       Right nr -> startMonitor nr
 
-startMonitor nr = do
-    cont <- MVar.newEmptyMVar
-    handle <- NetRuleExecutor.runNetRule nr
-    Signals.installHandler Signals.sigINT
-      (Signals.Catch $ stopMonitor (cont, handle))
-      (Just $ Signals.addSignal Signals.sigTERM Signals.emptySignalSet)
-    MVar.takeMVar cont
+-- current logging is just stdout
+setupLogging =
+    SIO.hSetBuffering SIO.stdout SIO.NoBuffering
 
-stopMonitor (cont, handle) = do
+startMonitor nr = do
+    setupLogging
+    cont <- MVar.newEmptyMVar
+    let stopAction = stopMonitor cont
+    Signals.installHandler Signals.sigINT
+      (Signals.Catch $ stopAction)
+      Nothing
+    Signals.installHandler Signals.sigTERM
+      (Signals.Catch $ stopAction)
+      Nothing
+    handle <- NetRuleExecutor.runNetRule nr
+    MVar.takeMVar cont
     NetRuleExecutor.stopNetRule handle
+
+stopMonitor cont =
     MVar.putMVar cont 0

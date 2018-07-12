@@ -1,6 +1,6 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TypeSynonymInstances #-}
-module Firerule.IPv4(IPv4, ipv4net, ipv4bits, parseIPv4) where
+module Firerule.IPv4(IPv4, ipv4net, ipv4bits, ipv4prefixLen, parseIPv4) where
 
 import Data.Word(Word8, Word32)
 import qualified Data.Bits as Bits
@@ -21,13 +21,17 @@ ipv4host :: IPv4Bytes -> IPv4
 ipv4host bytes = ipv4net bytes ipv4bits
 ipv4net :: IPv4Bytes -> Word8 -> IPv4
 ipv4net (b1, b2, b3, b4) prefixLen =
-    let dt = IP.packBlocks [b1, b2, b3, b4]
-     in IPv4 $ IP.IPRaw (dt .&. IP.subnetMask ipv4bits prefixLen) prefixLen
+    let prefixLen' = min ipv4bits prefixLen
+        dt = IP.packBlocks [b1, b2, b3, b4]
+     in IPv4 $ IP.IPRaw (dt .&. IP.subnetMask ipv4bits prefixLen') prefixLen'
 
 ipv4bits :: Word8
 ipv4bits =
     let z = 0 :: IPv4Host
      in fromIntegral $ Bits.finiteBitSize z
+
+ipv4prefixLen :: IPv4 -> Word8
+ipv4prefixLen (IPv4 raw) = IP.rawPrefixLen raw
 
 instance IP.IP IPv4 IPv4Host where
     toRaw (IPv4 raw) = raw

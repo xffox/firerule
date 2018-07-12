@@ -12,6 +12,8 @@ import qualified Firerule.ValueSet as VS
 data IPRaw w = IPRaw w W.Word8
     deriving Eq
 
+rawPrefixLen (IPRaw _ prefixLen) = prefixLen
+
 subnets :: (IP p w) => p -> W.Word8 -> [p]
 subnets v len =
     let (IPRaw host prefixLen) = toRaw v
@@ -46,7 +48,6 @@ unpackBlocks v =
             [(blocks-1), (blocks-2) .. 0]
      in res
 
--- TODO: proper input validation
 subnetMask bits prefixLen = Bits.complement $ hostMask bits prefixLen
 hostMask bits prefixLen = Bits.bit (fromIntegral (bits - prefixLen)) - 1
 
