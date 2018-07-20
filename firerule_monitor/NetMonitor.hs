@@ -11,7 +11,8 @@ data Info = Info {
 type EventCallback = Event -> IO ()
 
 class NetMonitor m where
-    init :: IO m
-    destroy :: m -> IO ()
     info :: m -> IO Info
     listen :: m -> (Maybe EventCallback) -> IO ()
+
+class NetNotifier n where
+    netRuleChanged :: n -> String -> IO ()

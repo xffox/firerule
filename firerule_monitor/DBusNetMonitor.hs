@@ -12,20 +12,68 @@ import qualified DBus.Client as DC
 
 import qualified NetMonitor as NM
 
-data DBusNetMonitor = DBusNetMonitor DC.Client (IORef.IORef (Maybe NM.EventCallback))
+data DBusNetMonitor =
+    DBusNetMonitor DC.Client DC.SignalHandler
+        (IORef.IORef (Maybe NM.EventCallback))
 
-nmdest = "org.freedesktop.NetworkManager"
+data DBusNetNotifier = DBusNetNotifier DC.Client
+    (IORef.IORef NotifierState)
+
+newtype NotifierState = NotifierState {
+        notifierFirewall :: Maybe String
+    }
+
+initNetMonitor client = do
+   callbackRef <- IORef.newIORef Nothing
+   signalHandler <- addHandler client
+        (handlePropertiesChange client callbackRef)
+   return $ DBusNetMonitor client signalHandler callbackRef
+destroyNetMonitor (DBusNetMonitor client signalHandler _) =
+    DC.removeMatch client signalHandler
+
+initNetNotifier client = do
+    res <- DC.requestName client (D.busName_ notifierBus)
+        [DC.nameAllowReplacement, DC.nameReplaceExisting, DC.nameDoNotQueue]
+    case res of
+      DC.NamePrimaryOwner -> do
+          state <- IORef.newIORef (NotifierState Nothing)
+          let handle = DBusNetNotifier client state
+          DC.export client notifierPath $ DC.defaultInterface
+              {
+                DC.interfaceName = notifierInterface,
+                DC.interfaceProperties =
+                    [
+                    DC.readOnlyProperty
+                        (D.memberName_ notifierFirewallProperty)
+                        (notifierPropertyGet handle)
+                    ]
+              }
+          return handle
+      _ -> fail "failed to init notifier"
+destroyNetNotifier (DBusNetNotifier client _) = do
+    res <- DC.releaseName client (D.busName_ notifierBus)
+    case res of
+      DC.NameReleased -> return ()
+      _ -> fail "failed to destroy notifier"
 
 instance NM.NetMonitor DBusNetMonitor where
-    init = do
-       client <- DC.connectSystem
-       callbackRef <- IORef.newIORef Nothing
-       addHandler client (handlePropertiesChange client callbackRef)
-       return $ DBusNetMonitor client callbackRef
-    destroy (DBusNetMonitor client _) = DC.disconnect client
-    info (DBusNetMonitor client _) = getActiveConnections client
-    listen (DBusNetMonitor client handler) mf =
-        IORef.writeIORef handler mf
+    info (DBusNetMonitor client _ _) = getActiveConnections client
+    listen (DBusNetMonitor client _ handler) = IORef.writeIORef handler
+
+instance NM.NetNotifier DBusNetNotifier where
+    netRuleChanged (DBusNetNotifier client state) firewall = do
+        IORef.modifyIORef' state (\_ -> NotifierState (Just firewall))
+        DC.emit client $
+            (D.signal notifierPath propertiesInterface "PropertiesChanged")
+            {
+                D.signalBody = [
+                    D.toVariant notifierInterface,
+                    D.toVariant
+                        (Map.singleton notifierFirewallProperty
+                            (D.toVariant firewall)),
+                    D.toVariant ([] :: [String])
+                ]
+            }
 
 handlePropertiesChange client callbackRef signal = do
     mbCallback <- IORef.readIORef callbackRef
@@ -52,7 +100,7 @@ getActiveConnections client = do
 
 getProperty client dest object interface property = do
     reply <- DC.call_ client
-        (D.methodCall object "org.freedesktop.DBus.Properties"
+        (D.methodCall object propertiesInterface
             (D.memberName_ "Get")) {
         D.methodCallDestination = Just dest,
         D.methodCallBody = [D.toVariant interface, D.toVariant property]
@@ -74,7 +122,7 @@ addHandler client =
     DC.addMatch client DC.matchAny
     {
         DC.matchPath = Just "/org/freedesktop/NetworkManager",
-        DC.matchInterface = Just "org.freedesktop.DBus.Properties",
+        DC.matchInterface = Just propertiesInterface,
         DC.matchMember = Just "PropertiesChanged"
     }
 
@@ -124,3 +172,17 @@ valueOrFail val =
     case val of
       Right v -> return v
       Left err -> fail err
+
+notifierPropertyGet (DBusNetNotifier _ state) = do
+    state <- IORef.readIORef state
+    return $ Maybe.fromMaybe "" $ notifierFirewall state
+
+nmdest = "org.freedesktop.NetworkManager"
+
+propertiesInterface = "org.freedesktop.DBus.Properties"
+
+notifierBus = "org.polymya.FireruleMonitor"
+notifierInterface = "org.polymya.FireruleMonitor"
+notifierPath = "/org/polymya/FireruleMonitor"
+
+notifierFirewallProperty = "firewall"

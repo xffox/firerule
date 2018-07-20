@@ -40,7 +40,7 @@ packages:
 # Dependency packages to be pulled from upstream that are not in the resolver
 # (e.g., acme-missiles-0.3)
 extra-deps:
-    - dbus-0.10.13
+    - dbus-1.0.1
     - libxml-sax-0.7.5
     - data-dword-0.3.1.2
     - data-bword-0.1.0.1

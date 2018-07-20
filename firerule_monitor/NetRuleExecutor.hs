@@ -1,4 +1,4 @@
-module NetRuleExecutor where
+module NetRuleExecutor(NetRuleHandle, runNetRule, stopNetRule) where
 
 import qualified Data.List as List
 import qualified Text.Printf as Printf
@@ -6,33 +6,37 @@ import qualified Text.Printf as Printf
 import qualified Firerule.CondTree as CT
 import qualified Firerule.Firewall as Firewall
 import qualified Firerule.Iptables.Iptables as Iptables
-import qualified DBusNetMonitor as DBusNetMonitor
 import qualified NetMonitor as NM
 import qualified NetRule as NetRule
 
-data NetRuleHandle = NetRuleHandle DBusNetMonitor.DBusNetMonitor
+data NetRuleHandle m n = NetRuleHandle m n
 
-callback nr (NM.NetworkChange info) =
-    handleNetwork nr info
+callback nr notifier (NM.NetworkChange info) =
+    handleNetwork nr notifier info
 
-stopNetRule (NetRuleHandle monitor) = do
-    putStrLn $ "stopping monitor"
-    NM.destroy monitor
-
-runNetRule nr = do
+runNetRule :: (NM.NetMonitor m, NM.NetNotifier n) =>
+    m -> n -> NetRule.NetRule -> IO (NetRuleHandle m n)
+runNetRule monitor notifier nr = do
     putStrLn $ "starting monitor"
-    monitor <- NM.init :: IO DBusNetMonitor.DBusNetMonitor
-    NM.listen monitor (Just (callback nr))
+    NM.listen monitor (Just (callback nr notifier))
     info <- NM.info monitor
-    handleNetwork nr info
-    return $ NetRuleHandle monitor
+    handleNetwork nr notifier info
+    return $ NetRuleHandle monitor notifier
 
-handleNetwork nr info = do
+stopNetRule :: (NM.NetMonitor m, NM.NetNotifier n) =>
+    (NetRuleHandle m n) -> IO ()
+stopNetRule (NetRuleHandle monitor _) = do
+    putStrLn $ "stopping monitor"
+    NM.listen monitor Nothing
+
+-- TODO: lock rules application
+handleNetwork nr notifier info = do
     logNetInfo info
     let (name, fw) = selectNetRule info nr
     putStrLn $ Printf.printf "applying firewall: '%s'" name
     Firewall.apply Iptables.IptablesFirewall $ fw
     putStrLn $ Printf.printf "applied firewall: '%s'" name
+    NM.netRuleChanged notifier name
 
 selectNetRule info (NetRule.NetRule defaultFirewall rules) =
     case List.find (evalTree info . snd) rules of
