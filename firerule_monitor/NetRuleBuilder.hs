@@ -1,6 +1,7 @@
 module NetRuleBuilder where
 
 import qualified Data.List as List
+import qualified Data.Set as Set
 import qualified Text.Printf as Printf
 import qualified System.IO as SIO
 import qualified Control.Monad.Trans.Except as Except
@@ -38,8 +39,8 @@ buildNetRule fr = do
                     mapM buildJump actJumps
       _ -> fail "invalid net rule: should be \"network\" only"
 
-buildConnectionNameCondition [connection] = return $
-    NetRule.ConnectionName connection
+buildConnectionNameCondition connections = return $
+    NetRule.ConnectionName (Set.fromList connections)
 buildConnectionNameCondition _ = fail "invalid network condition arguments"
 
 buildJump (RuleParser.Jump act tr) =

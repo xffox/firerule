@@ -1,6 +1,7 @@
 module NetRuleExecutor(NetRuleHandle, runNetRule, stopNetRule) where
 
 import qualified Data.List as List
+import qualified Data.Set as Set
 import qualified Text.Printf as Printf
 import qualified Control.Concurrent.MVar as MVar
 import qualified Control.Exception as Exception
@@ -64,8 +65,10 @@ evalTree info CT.NodeTrue =
 evalTree info CT.NodeFalse =
     False
 
-evalCondition (NM.Info [actualConnection])
-    (NetRule.ConnectionName connection) = actualConnection == connection
+evalCondition (NM.Info actualConnections)
+    (NetRule.ConnectionName connections) =
+        (not $ null actualConnections) &&
+            (all (flip Set.member $ connections) actualConnections)
 evalCondition _ _ = False
 
 logNetInfo (NM.Info connections) =
