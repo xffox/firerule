@@ -209,8 +209,14 @@ ruleToCommands :: Conf.Flow -> Conf.Action ->
     [(Conf.Action, CondTree.CondTree MatchExpr)] ->
     IptablesRuleState.IptablesRuleState [[String]]
 ruleToCommands flow policy acts =
-    (++) <$> (return [policyArguments flow $ matchAction policy]) <*>
-        (fmap concat $ mapM (uncurry $ actionToCommands flow) acts)
+    case policy of
+      Conf.Accept -> (++) <$> policyCommands <*> actionsCommands
+      _ -> (++) <$> actionsCommands <*> policyCommands
+    where
+        policyCommands =
+            return [policyArguments flow $ matchAction policy]
+        actionsCommands =
+            fmap concat $ mapM (uncurry $ actionToCommands flow) acts
 
 actionToCommands flow act tr = do
     let (table, chain) = matchFlow flow

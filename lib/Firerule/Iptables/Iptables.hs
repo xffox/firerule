@@ -1,5 +1,6 @@
 module Firerule.Iptables.Iptables(
-    IptablesFirewall(..), IptablesTreeFirewall(..)) where
+    IptablesFirewall(..), IptablesTreeFirewall(..),
+    IptablesPrintFirewall(..)) where
 
 import qualified Data.List as List
 import qualified System.Process as Process
@@ -28,11 +29,20 @@ instance Firewall.Firewall IptablesTreeFirewall where
                 concatMap (\(_, _, acts) -> map snd acts) $
                     concatMap snd netrules
 
+data IptablesPrintFirewall = IptablesPrintFirewall
+
+instance Firewall.Firewall IptablesPrintFirewall where
+    apply _ fw =
+        mapM_ printCommand $ IptablesBuilder.buildCommands fw
+
 execCommand v@(cmd, args) = do
     res <- Process.rawSystem cmd args
     case res of
       Exit.ExitSuccess -> return ()
       Exit.ExitFailure code -> fail "execution failed"
+
+printCommand (cmd, args) =
+    putStrLn $ unwords (cmd:args)
 
 cleanupCommands = concatMap (\cmd -> map ((,) cmd) cleanupArgs) $
     map IptablesBuilder.networkToCommand $

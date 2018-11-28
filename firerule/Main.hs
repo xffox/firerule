@@ -12,11 +12,13 @@ import qualified Firerule.Format.RuleParser as RuleParser
 import qualified Firerule.Format.ConfBuilder as ConfBuilder
 
 data Config = Config {
-        firewallFile :: String
+        firewallFile :: String,
+        dryRun :: Bool
     }
 
 configParse = Config <$>
-    Opt.strArgument (Opt.metavar "FILE")
+    Opt.strArgument (Opt.metavar "FILE") <*>
+    Opt.switch (Opt.short 'p' <> Opt.help "only show the rules")
 
 main = do
     config <- Opt.execParser $
@@ -25,4 +27,6 @@ main = do
         inp <- SIO.hGetContents h
         case RuleParser.parseFirewall inp >>= ConfBuilder.buildConf of
           Left err -> putStrLn $ Printf.printf "failure: %s" err
-          Right fw -> Firewall.apply Iptables.IptablesFirewall fw
+          Right fw -> if not $ dryRun config
+                         then Firewall.apply Iptables.IptablesFirewall fw
+                         else Firewall.apply Iptables.IptablesPrintFirewall fw
