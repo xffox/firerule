@@ -15,7 +15,7 @@
 # resolver:
 #  name: custom-snapshot
 #  location: "./custom-snapshot.yaml"
-resolver: lts-14.9
+resolver: lts-16.23
 
 # User packages to be built.
 # Various formats can be used as shown in the example below.
@@ -40,10 +40,7 @@ packages:
 # Dependency packages to be pulled from upstream that are not in the resolver
 # (e.g., acme-missiles-0.3)
 extra-deps:
-    - dbus-1.0.1
-    - libxml-sax-0.7.5
-    - data-dword-0.3.1.2
-    - data-bword-0.1.0.1
+    - dbus-1.2.16
 
 # Override default flag values for local packages and extra-deps
 flags: {}

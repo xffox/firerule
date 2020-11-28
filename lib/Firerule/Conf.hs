@@ -1,5 +1,4 @@
 {-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE TupleSections #-}
 module Firerule.Conf where
 
 import Data.Word (Word8, Word16, Word32, Word64)
