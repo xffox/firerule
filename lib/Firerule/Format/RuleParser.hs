@@ -76,9 +76,9 @@ jump = Parsec.try $ do
 jumpCondition = do
     cl <- clause
     case mapM step (expandConditionTree cl) of
-      Right ct -> return ct
-      Left er -> fail er
-    where step [] = fail "empty rules"
+      Just ct -> return ct
+      Nothing -> fail "invalid rules"
+    where step [] = fail ""
           step rs = return $ Condition rs
 
 clause = orExpr
