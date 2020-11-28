@@ -1,6 +1,7 @@
 module TestIPv4 where
 
 import Test.QuickCheck
+import Test.Hspec
 
 import qualified Firerule.IPv4 as IPv4
 import qualified Data.Word as W
@@ -25,8 +26,12 @@ prop_subnetsAlwaysLess :: IPv4.IPv4 -> LimitedPrefixLen -> Bool
 prop_subnetsAlwaysLess v (LimitedPrefixLen prefixLen) =
     let subnets = IP.subnets v
             (min IPv4.ipv4bits (IPv4.ipv4prefixLen v + prefixLen))
-     in all (\sn -> (VS.mergeJoin sn v == Just v) &&
-         (VS.mergeIntersect sn v == [sn])) subnets
+     in all (\sn -> (VS.simpleValue (VS.union sn v) == Just v) &&
+         (VS.simpleValue (VS.intersection sn v) == Just sn)) subnets
 
 prop_showParseEquals :: IPv4.IPv4 -> Bool
 prop_showParseEquals v = (IPv4.parseIPv4 $ show v) == (Right v)
+
+spec = describe "IPv4" $ do
+    it "does subnets" $ property prop_subnetsAlwaysLess
+    it "does show-parse" $ property prop_showParseEquals

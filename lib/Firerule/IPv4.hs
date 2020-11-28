@@ -1,6 +1,8 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TypeSynonymInstances #-}
-module Firerule.IPv4(IPv4, ipv4net, ipv4bits, ipv4prefixLen, parseIPv4) where
+{-# LANGUAGE GeneralisedNewtypeDeriving #-}
+module Firerule.IPv4(IPv4, ipv4net, ipv4host, ipv4bits,
+    ipv4prefixLen, parseIPv4) where
 
 import Data.Word(Word8, Word32)
 import qualified Data.Bits as Bits
@@ -13,7 +15,7 @@ import qualified Firerule.IP as IP
 import qualified Firerule.IPParser as IPParser
 
 newtype IPv4 = IPv4 (IP.IPRaw IPv4Host)
-    deriving Eq
+    deriving (Eq, Ord, VS.Mergeable)
 type IPv4Host = Word32
 type IPv4Bytes = (Word8, Word8, Word8, Word8)
 
@@ -35,13 +37,7 @@ ipv4prefixLen (IPv4 raw) = IP.rawPrefixLen raw
 
 instance IP.IP IPv4 IPv4Host where
     toRaw (IPv4 raw) = raw
-    fromRaw raw = (IPv4 raw)
-
-instance VS.Mergeable IPv4 where
-    mergeJoin v1@(IPv4 raw1) v2@(IPv4 raw2) =
-        fmap IPv4 $ VS.mergeJoin raw1 raw2
-    mergeIntersect v1@(IPv4 raw1) v2@(IPv4 raw2) =
-        fmap IPv4 $ VS.mergeIntersect raw1 raw2
+    fromRaw = IPv4
 
 instance Show IPv4 where
     show (IPv4 (IP.IPRaw dt prefixLen)) =

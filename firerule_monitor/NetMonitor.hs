@@ -1,18 +1,15 @@
 module NetMonitor where
 
-data Event =
-    NetworkChange Info
+import qualified FireruleMonitor.NetInfo as NetInfo
 
-data Info = Info {
-    networks :: [String]
-    }
-    deriving Show
+newtype Event =
+    NetworkChange NetInfo.NetInfo
 
 type EventCallback = Event -> IO ()
 
 class NetMonitor m where
-    info :: m -> IO Info
-    listen :: m -> (Maybe EventCallback) -> IO ()
+    info :: m -> IO NetInfo.NetInfo
+    listen :: m -> Maybe EventCallback -> IO ()
 
 class NetNotifier n where
     netRuleChanged :: n -> String -> IO ()

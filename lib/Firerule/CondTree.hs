@@ -1,5 +1,7 @@
-module Firerule.CondTree(CondTree(..), size, showTree, foldLeft, eqToDepth) where
+module Firerule.CondTree(CondTree(..), CutCondTree(..),
+    size, showTree, foldLeft, restructTreeM) where
 
+import qualified Data.Maybe as Maybe
 import qualified Data.Tree as Tree
 
 data CondTree a = Leaf a |
@@ -7,6 +9,7 @@ data CondTree a = Leaf a |
     NodeAnd (CondTree a) (CondTree a) |
     NodeNot (CondTree a) |
     NodeTrue | NodeFalse
+    deriving (Eq, Ord)
 
 instance Functor CondTree where
     fmap f (Leaf v) = Leaf $ f v
@@ -26,21 +29,59 @@ instance Foldable CondTree where
 
 instance Traversable CondTree where
     traverse f (Leaf v) = Leaf <$> f v
-    traverse f (NodeOr left right) = NodeOr <$> (traverse f left) <*>
-        (traverse f right)
-    traverse f (NodeAnd left right) = NodeAnd <$> (traverse f left) <*>
-        (traverse f right)
+    traverse f (NodeOr left right) = NodeOr <$> traverse f left <*>
+        traverse f right
+    traverse f (NodeAnd left right) = NodeAnd <$> traverse f left <*>
+        traverse f right
     traverse f (NodeNot node) = NodeNot <$> traverse f node
     traverse _ NodeTrue = pure NodeTrue
     traverse _ NodeFalse = pure NodeFalse
 
-instance Eq a => Eq (CondTree a) where
-    (==) = twofoldLeft cmp True
-        where cmp r (Just (left, right)) = r && (left == right)
-              cmp _ Nothing = False
-
 instance Show a => Show (CondTree a) where
     show = showTree
+
+data CutCondTree a = CutCondTree Int (CondTree a)
+
+instance Eq a => Eq (CutCondTree a) where
+    (==) (CutCondTree d1 tr1) (CutCondTree d2 tr2) =
+        d1 == d2 && eqToDepth d1 tr1 tr2
+
+instance Ord a => Ord (CutCondTree a) where
+    compare (CutCondTree d1 tr1) (CutCondTree d2 tr2) =
+        case compare d1 d2 of
+          EQ -> ordToDepth d1 tr1 tr2
+          r -> r
+
+eqToDepth d _ _ | d <= 0 = True
+eqToDepth d (NodeAnd aLeft aRight) (NodeAnd bLeft bRight) =
+    eqToDepth (d-1) aLeft bLeft && eqToDepth (d-1) aRight bRight
+eqToDepth d (NodeOr aLeft aRight) (NodeOr bLeft bRight) =
+    eqToDepth (d-1) aLeft bLeft && eqToDepth (d-1) aRight bRight
+eqToDepth d (NodeNot left) (NodeNot right) = eqToDepth (d-1) left right
+eqToDepth _ n1 n2 = n1 == n2
+
+ordToDepth d _ _ | d <= 0 = EQ
+ordToDepth d (NodeAnd left1 right1) (NodeAnd left2 right2) =
+    case ordToDepth (d-1) left1 left2 of
+      EQ -> ordToDepth (d-1) right1 right2
+      r -> r
+ordToDepth d (NodeOr left1 right1) (NodeOr left2 right2) =
+    case ordToDepth (d-1) left1 left2 of
+      EQ -> ordToDepth (d-1) right1 right2
+      r -> r
+ordToDepth d (NodeNot n1) (NodeNot n2) = ordToDepth (d-1) n1 n2
+ordToDepth _ n1 n2 = compare n1 n2
+
+restructTreeM :: Monad m => (CondTree a -> m (CondTree a)) ->
+    CondTree a -> m (CondTree a)
+restructTreeM f n = restructTreeM' n >>= f
+    where restructTreeM' (NodeNot n) =
+              NodeNot <$> restructTreeM f n
+          restructTreeM' (NodeOr left right) =
+              NodeOr <$> restructTreeM f left <*> restructTreeM f right
+          restructTreeM' (NodeAnd left right) =
+              NodeAnd <$> restructTreeM f left <*> restructTreeM f right
+          restructTreeM' n = return n
 
 size = foldLeft (\r _ -> r + 1) 0
 
@@ -63,17 +104,6 @@ foldLeft f r = foldLeft' r id
         foldLeft' v cnt n@(NodeNot node) =
             foldLeft' v (\p -> cnt $ f p n) node
         foldLeft' v cnt n = cnt $ f v n
-
-eqToDepth d _ _ | d <= 0 = True
-eqToDepth d (Leaf left) (Leaf right) = left == right
-eqToDepth d (NodeAnd aLeft aRight) (NodeAnd bLeft bRight) =
-    eqToDepth (d-1) aLeft bLeft && eqToDepth (d-1) aRight bRight
-eqToDepth d (NodeOr aLeft aRight) (NodeOr bLeft bRight) =
-    eqToDepth (d-1) aLeft bLeft && eqToDepth (d-1) aRight bRight
-eqToDepth d (NodeNot left) (NodeNot right) = eqToDepth (d-1) left right
-eqToDepth d NodeTrue NodeTrue = True
-eqToDepth d NodeFalse NodeFalse = True
-eqToDepth _ _ _ = False
 
 twofoldLeft f r = twofoldLeft' r id
     where

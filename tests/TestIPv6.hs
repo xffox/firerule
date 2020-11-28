@@ -1,6 +1,7 @@
 module TestIPv6 where
 
 import Test.QuickCheck
+import Test.Hspec
 
 import qualified Firerule.IPv6 as IPv6
 import qualified Data.Word as W
@@ -29,8 +30,12 @@ prop_subnetsAlwaysLess :: IPv6.IPv6 -> LimitedPrefixLen -> Bool
 prop_subnetsAlwaysLess v (LimitedPrefixLen prefixLen) =
     let subnets = IP.subnets v
             (min IPv6.ipv6bits (IPv6.ipv6prefixLen v + prefixLen))
-     in all (\sn -> (VS.mergeJoin sn v == Just v) &&
-         (VS.mergeIntersect sn v == [sn])) subnets
+     in all (\sn -> (VS.simpleValue (VS.union sn v) == Just v) &&
+         (VS.simpleValue (VS.intersection sn v) == Just sn)) subnets
 
 prop_showParseEquals :: IPv6.IPv6 -> Bool
 prop_showParseEquals v = (IPv6.parseIPv6 $ show v) == (Right v)
+
+spec = describe "IPv6" $ do
+    it "does subnets" $ property prop_subnetsAlwaysLess
+    it "does show-parse" $ property prop_showParseEquals

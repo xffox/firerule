@@ -1,5 +1,6 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE GeneralisedNewtypeDeriving #-}
 module Firerule.IPv6(IPv6, ipv6net, ipv6bits, ipv6prefixLen, parseIPv6) where
 
 import qualified Data.List as List
@@ -15,7 +16,7 @@ import qualified Firerule.IP as IP
 import qualified Firerule.IPParser as IPParser
 
 newtype IPv6 = IPv6 (IP.IPRaw IPv6Host)
-    deriving Eq
+    deriving (Eq, Ord, VS.Mergeable)
 type IPv6Host = Word128
 type IPv6Bytes = (Word16, Word16, Word16, Word16,
                  Word16, Word16, Word16, Word16)
@@ -39,13 +40,7 @@ ipv6prefixLen (IPv6 raw) = IP.rawPrefixLen raw
 
 instance IP.IP IPv6 IPv6Host where
     toRaw (IPv6 raw) = raw
-    fromRaw raw = (IPv6 raw)
-
-instance VS.Mergeable IPv6 where
-    mergeJoin v1@(IPv6 raw1) v2@(IPv6 raw2) =
-        fmap IPv6 $ VS.mergeJoin raw1 raw2
-    mergeIntersect v1@(IPv6 raw1) v2@(IPv6 raw2) =
-        fmap IPv6 $ VS.mergeIntersect raw1 raw2
+    fromRaw = IPv6
 
 instance Show IPv6 where
     show (IPv6 (IP.IPRaw dt prefixLen)) =

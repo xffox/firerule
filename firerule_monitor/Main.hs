@@ -12,12 +12,14 @@ import Data.Semigroup((<>))
 
 import qualified DBus.Client as DC
 
-import qualified NetRuleBuilder as NetRuleBuilder
-import qualified NetRuleExecutor as NetRuleExecutor
-import qualified DBusNetMonitor as DBusNetMonitor
+import qualified Firerule.Iptables.Iptables as Iptables
+import qualified FireruleMonitor.NetRuleBuilder as NetRuleBuilder
+import qualified NetRuleExecutor
+import qualified DBusNetMonitor
 
 data Config = Config {
-        path :: String
+        path :: String,
+        dryRun :: Bool
     }
 
 configParse = Config <$>
@@ -25,7 +27,8 @@ configParse = Config <$>
             Opt.long "path" <>
             Opt.short 'p' <>
             Opt.metavar "PATH"
-        )
+        ) <*>
+    Opt.switch (Opt.short 's' <> Opt.help "only show the rules")
 
 main = do
     config <- Opt.execParser $
@@ -42,13 +45,12 @@ main = do
                         (DBusNetMonitor.initNetNotifier client)
                         DBusNetMonitor.destroyNetNotifier
                         (\notifier -> do
-                            res <- Except.runExceptT $
-                                NetRuleBuilder.readNetRule $ path config
-                            case res of
-                              Left err ->
-                                  fail err
-                              Right nr ->
-                                  runMonitor monitor notifier nr
+                            let rulePath = path config
+                            if not $ dryRun config
+                               then run Iptables.IptablesFirewall
+                                    rulePath monitor notifier
+                               else run Iptables.IptablesPrintFirewall
+                                    rulePath monitor notifier
                         )
                 )
         )
@@ -57,7 +59,16 @@ main = do
 setupLogging =
     SIO.hSetBuffering SIO.stdout SIO.NoBuffering
 
-runMonitor monitor notifier nr = do
+run firewall rulePath monitor notifier = do
+    res <- Except.runExceptT $
+        NetRuleBuilder.readNetRule firewall rulePath
+    case res of
+      Left err ->
+          fail err
+      Right nr ->
+          runMonitor firewall monitor notifier nr
+
+runMonitor firewall monitor notifier nr = do
     setupLogging
     cont <- MVar.newEmptyMVar
     let stopAction = stopMonitor cont
@@ -67,7 +78,8 @@ runMonitor monitor notifier nr = do
     Signals.installHandler Signals.sigTERM
       (Signals.Catch $ stopAction)
       Nothing
-    handle <- NetRuleExecutor.runNetRule monitor notifier nr
+      -- TODO: handle errors
+    handle <- NetRuleExecutor.runNetRule firewall monitor notifier nr
     MVar.takeMVar cont
     NetRuleExecutor.stopNetRule handle
 

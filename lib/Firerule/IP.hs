@@ -1,16 +1,16 @@
-{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FunctionalDependencies #-}
 module Firerule.IP where
 
 import qualified Data.Word as W
 import qualified Data.Bits as Bits
 import qualified Data.List as List
+import qualified Data.Maybe as Maybe
 import Data.Bits((.&.), (.|.))
 
 import qualified Firerule.ValueSet as VS
 
 data IPRaw w = IPRaw w W.Word8
-    deriving Eq
+    deriving (Eq, Ord)
 
 rawPrefixLen (IPRaw _ prefixLen) = prefixLen
 
@@ -56,27 +56,29 @@ range dt prefixLen bits = (dt, dt + 2^(bits-prefixLen) - 1)
 sizeBits w = fromIntegral $ Bits.finiteBitSize w
 
 instance (Bits.FiniteBits w, Num w, Ord w) => VS.Mergeable (IPRaw w) where
-    mergeJoin v1@(IPRaw dt1 prefixLen1)
+    union v1@(IPRaw dt1 prefixLen1)
         v2@(IPRaw dt2 prefixLen2)
-        | v1 == v2 = Just v1
+        | v1 == v2 = VS.fromValue v1
         | prefixLen1 > 0 && prefixLen1 == prefixLen2 =
             let m = subnetMask (sizeBits dt1) $ prefixLen1-1
              in if ((dt1 .&. m) == (dt2 .&. m)) &&
                  ((dt1 `Bits.xor` dt2) /= 0)
-                then Just $ (IPRaw (dt1 .&. m) (prefixLen1-1))
-                else Nothing
+                then VS.fromValue (IPRaw (dt1 .&. m) (prefixLen1-1))
+                else VS.fromCategory VS.SomeSet
         | otherwise =
             let minPrefixLen = min prefixLen1 prefixLen2
              in let m = subnetMask (sizeBits dt1) minPrefixLen
                  in if dt1 .&. m == dt2 .&. m
-                       then Just $ (IPRaw (dt1 .&. m) minPrefixLen)
-                       else Nothing
-    mergeIntersect v1@(IPRaw host1 prefixLen1)
+                       then VS.fromValue (IPRaw (dt1 .&. m) minPrefixLen)
+                       else VS.fromCategory VS.SomeSet
+    intersection v1@(IPRaw host1 prefixLen1)
         v2@(IPRaw host2 prefixLen2) =
         let (b1, e1) = range host1 prefixLen1 (sizeBits host1)
             (b2, e2) = range host2 prefixLen2 (sizeBits host1)
             sectBegin = max b1 b2
             sectEnd = min e1 e2
         in if sectBegin <= sectEnd
-            then [IPRaw sectBegin (max prefixLen1 prefixLen2)]
-            else []
+            then VS.fromValue (IPRaw sectBegin (max prefixLen1 prefixLen2))
+            else VS.fromCategory VS.EmptySet
+    emptySet = Nothing
+    universeSet = Just $ IPRaw 0 0

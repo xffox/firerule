@@ -26,9 +26,9 @@ executable firerule
 
 executable firerule-monitor
   main-is:             Main.hs
-  other-modules:       NetMonitor, DBusNetMonitor, NetRule, NetRuleBuilder, NetRuleExecutor
+  other-modules:       NetMonitor, DBusNetMonitor, NetRuleExecutor
   -- other-extensions:    
-  build-depends:       base, containers, dbus, unix, optparse-applicative, deepseq, transformers,
+  build-depends:       base, containers, dbus, unix, optparse-applicative, transformers,
                        firerule
   hs-source-dirs:      firerule_monitor
   default-language:    Haskell2010
@@ -38,10 +38,14 @@ library
                        Firerule.IP, Firerule.IPv4, Firerule.IPv6,
                        Firerule.Firewall, Firerule.Port,
                        Firerule.Format.RuleParser, Firerule.Format.ConfBuilder, Firerule.Format.PrefixTree,
-                       Firerule.Iptables.Iptables
+                       Firerule.Iptables.Iptables, Firerule.Iptables.MatchExpr,Firerule.Iptables.IptablesData,
+                       Firerule.BoolPair,
+                       FireruleMonitor.NetInfo, FireruleMonitor.NetRule, FireruleMonitor.NetRuleBuilder
   other-modules:       Firerule.IPParser,
-                       Firerule.Iptables.IptablesBuilder, Firerule.Iptables.IptablesRuleState, Firerule.Iptables.IptablesData
-  build-depends:       base, containers, data-dword, parsec, transformers, mtl, process
+                       Firerule.Iptables.IptablesBuilder, Firerule.Iptables.IptablesRuleState,
+                       Firerule.Wrapped,
+                       FireruleMonitor.PatternMatcher
+  build-depends:       base, containers, data-dword, parsec, transformers, mtl, process, deepseq, regex-compat
   hs-source-dirs:      lib
   default-language:    Haskell2010
 
@@ -49,9 +53,9 @@ Test-Suite firerule-testsuite
   Type:                exitcode-stdio-1.0
   default-language:    Haskell2010
   main-is:             Main.hs
-  other-modules:       TestIPv4, TestIPv6
+  other-modules:       TestIPv4, TestIPv6, NetRuleSpec, RuleParserSpec, MatchExprSpec
   hs-source-dirs:      tests
-  Build-depends:       firerule, base, QuickCheck, test-framework, test-framework-quickcheck2
+  Build-depends:       firerule, base, containers, QuickCheck, hspec
 
 Benchmark firerule-bench
   Type:                exitcode-stdio-1.0

@@ -9,68 +9,52 @@ import qualified Control.Exception as Exception
 import qualified Firerule.CondTree as CT
 import qualified Firerule.Firewall as Firewall
 import qualified Firerule.Iptables.Iptables as Iptables
+import qualified Firerule.BoolPair as BoolPair
+import qualified Firerule.Conf as Conf
+import qualified FireruleMonitor.NetRule as NetRule
+import qualified FireruleMonitor.NetInfo as NetInfo
 import qualified NetMonitor as NM
-import qualified NetRule as NetRule
 
 data NetRuleHandle m n = NetRuleHandle m n (MVar.MVar ())
 
-callback nr monitor notifier lock (NM.NetworkChange info) =
-    handleNetwork nr monitor notifier lock
+callback fh selector handle (NM.NetworkChange info) =
+    handleNetwork fh selector handle
 
-runNetRule :: (NM.NetMonitor m, NM.NetNotifier n) =>
-    m -> n -> NetRule.NetRule -> IO (NetRuleHandle m n)
-runNetRule monitor notifier nr = do
-    putStrLn $ "starting monitor"
+runNetRule :: (NM.NetMonitor m, NM.NetNotifier n, Firewall.Firewall f r) =>
+    f -> m -> n -> NetRule.NetRule (String, r) -> IO (NetRuleHandle m n)
+runNetRule fh monitor notifier nr = do
+    -- TODO: handle errors
+    let selector = NetRule.makeSelector nr
+    putStrLn "starting monitor"
     lock <- MVar.newMVar ()
-    NM.listen monitor (Just (callback nr monitor notifier lock))
-    handleNetwork nr monitor notifier lock
-    return $ NetRuleHandle monitor notifier lock
+    let handle = NetRuleHandle monitor notifier lock
+    NM.listen monitor (Just (callback fh selector handle))
+    handleNetwork fh selector handle
+    return handle
 
 stopNetRule :: (NM.NetMonitor m, NM.NetNotifier n) =>
-    (NetRuleHandle m n) -> IO ()
+    NetRuleHandle m n -> IO ()
 stopNetRule (NetRuleHandle monitor _ lock) = do
-    putStrLn $ "stopping monitor"
+    putStrLn "stopping monitor"
     NM.listen monitor Nothing
     MVar.takeMVar lock
 
-handleNetwork nr monitor notifier lock =
+handleNetwork fh selector (NetRuleHandle monitor notifier lock) =
     Exception.bracket_
         (MVar.takeMVar lock)
         (MVar.putMVar lock ())
         (do
             info <- NM.info monitor
             logNetInfo info
-            let (name, fw) = selectNetRule info nr
-            putStrLn $ Printf.printf "applying firewall: '%s'" name
-            Firewall.apply Iptables.IptablesFirewall $ fw
-            putStrLn $ Printf.printf "applied firewall: '%s'" name
-            NM.netRuleChanged notifier name
+            case NetRule.selectNetRule selector info of
+              (Just (name, fw)) -> do
+                  putStrLn $ Printf.printf "applying firewall: '%s'" name
+                  Firewall.use fh fw
+                  putStrLn $ Printf.printf "applied firewall: '%s'" name
+                  NM.netRuleChanged notifier name
+              _ -> undefined
         )
 
-selectNetRule info (NetRule.NetRule defaultFirewall rules) =
-    case List.find (evalTree info . snd) rules of
-      Just (firewall, _) -> firewall
-      _ -> defaultFirewall
-
-evalTree info (CT.Leaf cnd) =
-    evalCondition info cnd
-evalTree info (CT.NodeOr left right) =
-    evalTree info left || evalTree info right
-evalTree info (CT.NodeAnd left right) =
-    evalTree info left && evalTree info right
-evalTree info (CT.NodeNot node) =
-    not $ evalTree info node
-evalTree info CT.NodeTrue =
-    True
-evalTree info CT.NodeFalse =
-    False
-
-evalCondition (NM.Info actualConnections)
-    (NetRule.ConnectionName connections) =
-        (not $ null actualConnections) &&
-            (all (flip Set.member $ connections) actualConnections)
-evalCondition _ _ = False
-
-logNetInfo (NM.Info connections) =
+logNetInfo (NetInfo.NetInfo connections) =
     putStrLn $ Printf.printf "current connections: %s" $
         unwords $ map (\c -> Printf.printf "'%s'" c) connections

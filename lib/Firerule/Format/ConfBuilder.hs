@@ -1,3 +1,4 @@
+{-# LANGUAGE TupleSections #-}
 module Firerule.Format.ConfBuilder(buildConf) where
 
 import qualified Text.Printf as Printf
@@ -16,9 +17,10 @@ buildConf (RuleParser.Firewall rules) =
     fmap Conf.Firewall $ mapM buildRule rules
 
 buildRule (RuleParser.Rule flow jumps) =
-    let (defaultJumps, actJumps) = List.partition isDefaultJump jumps
-     in case defaultJumps of
-          [RuleParser.DefaultJump act] -> Conf.Rule <$>
+    let actJumps = takeWhile (not . isDefaultJump) jumps
+        defaultJump = List.find isDefaultJump jumps
+     in case defaultJump of
+          (Just (RuleParser.DefaultJump act)) -> Conf.Rule <$>
               (buildFlow flow) <*>
                   (buildAction act) <*>
                       (mapM buildJump actJumps)
@@ -36,16 +38,20 @@ buildAction act =
       "accept" -> Right Conf.Accept
       "reject" -> Right Conf.Reject
 
-buildJump (RuleParser.Jump act tr) = (,) <$> (buildAction act) <*>
-    buildRuleClause tr
+buildJump (RuleParser.Jump act tr) =
+    (,) <$> buildAction act <*> buildRuleClause tr
 buildJump _ = fail "invalid jump"
 
-buildRuleClause tr = fmap Conf.RuleClause $
-    mapM buildCondition tr
+buildRuleClause tr = Conf.RuleClause <$>
+    (CT.restructTreeM extractNamespaceNegation tr >>= mapM buildCondition)
+        where
+            extractNamespaceNegation (CT.Leaf (RuleParser.Condition ((False, ns):args))) =
+                return $ CT.NodeNot $ CT.Leaf $ RuleParser.Condition $ (True, ns):args
+            extractNamespaceNegation n = return n
 
-buildCondition (RuleParser.Condition as@(ns:args)) = do
-    ns' <- RuleParser.parseNamespace ns
-    case PrefixTree.findPrefix ns' conditions of
+-- TODO: expand not clause
+buildCondition (RuleParser.Condition as@((True, ns):args)) =
+    case PrefixTree.findPrefix conditions ns of
       Just b -> b args
       _ -> fail $ Printf.printf "condition not found: %s" (show as)
 buildCondition _ = fail "invalid condition clause"
@@ -53,64 +59,81 @@ buildCondition _ = fail "invalid condition clause"
 isDefaultJump (RuleParser.DefaultJump _) = True
 isDefaultJump _ = False
 
-buildInterface [dir, name] = fmap Conf.LayerCondition $
-    Conf.DirectedLayer <$> (buildDirection dir) <*>
-        (pure $ Conf.LinkLayer $ Conf.MACInterface $ Conf.MacAddr name)
+buildInterface [dir, (neg, name)] = fmap Conf.LayerCondition $
+    Conf.DirectedLayer <$> buildDirection dir <*>
+        (fmap (neg,) $
+            pure $ Conf.LinkLayer $ Conf.MACInterface $ Conf.MacAddr name)
 
 buildIPv4 [dir] = fmap Conf.LayerCondition $
-    Conf.DirectedLayer <$> (buildDirection dir) <*>
-        (pure $ Conf.NetworkLayer Conf.ipv4)
+    Conf.DirectedLayer <$> buildDirection dir <*>
+        (fmap (True,) $
+            pure $ Conf.NetworkLayer Conf.ipv4)
 buildIPv4 _  = Left "invalid ipv4 args"
 
 buildIPv6 [dir] = fmap Conf.LayerCondition $
-    Conf.DirectedLayer <$> (buildDirection dir) <*>
-        (pure $ Conf.NetworkLayer Conf.ipv6)
+    Conf.DirectedLayer <$> buildDirection dir <*>
+        (fmap (True,) $
+            pure $ Conf.NetworkLayer Conf.ipv6)
 buildIPv6 _  = Left "invalid ipv6 args"
 
-buildIPv4Addr [dir, addr] = fmap Conf.LayerCondition $
+buildIPv4Addr [dir, (neg, addr)] = fmap Conf.LayerCondition $
     Conf.DirectedLayer <$> (buildDirection dir) <*>
-        (fmap (Conf.NetworkLayer . Conf.ipv4Addr) (IPv4.parseIPv4 addr))
+        (fmap (neg,) $
+            fmap (Conf.NetworkLayer . Conf.ipv4Addr) $
+                (IPv4.parseIPv4 addr))
 buildIPv4Addr _  = Left "invalid ipv4 args"
 
 buildIPv4ICMP [] = return $ Conf.LayerCondition $
-    Conf.DirectedLayer Conf.Any $ Conf.NetworkLayer Conf.icmp
+    Conf.DirectedLayer Conf.Any $
+        (True, Conf.NetworkLayer Conf.icmp)
 
-buildIPv6Addr [dir, addr] = fmap Conf.LayerCondition $
+buildIPv6Addr [dir, (neg, addr)] = fmap Conf.LayerCondition $
     Conf.DirectedLayer <$> (buildDirection dir) <*>
-        (fmap (Conf.NetworkLayer . Conf.ipv6Addr) (IPv6.parseIPv6 addr))
+        (fmap (neg,) $
+            fmap (Conf.NetworkLayer . Conf.ipv6Addr) $
+                (IPv6.parseIPv6 addr))
 buildIPv6Addr _  = Left "invalid ipv6 args"
 
 buildIPv6ICMP [] = return $ Conf.LayerCondition $
-    Conf.DirectedLayer Conf.Any $ Conf.NetworkLayer Conf.icmpv6
+    Conf.DirectedLayer Conf.Any $ (True, Conf.NetworkLayer Conf.icmpv6)
 
 buildTCP [dir] = fmap Conf.LayerCondition $
     Conf.DirectedLayer <$> (buildDirection dir) <*>
-        (pure $ Conf.TransportLayer Conf.tcp)
+        (fmap (True,) $
+            pure $ Conf.TransportLayer Conf.tcp)
 buildTCP _ =  Left "invalid TCP args"
 
-buildTCPPort [dir, port] = fmap Conf.LayerCondition $
+buildTCPPort [dir, (neg, port)] = fmap Conf.LayerCondition $
     Conf.DirectedLayer <$> (buildDirection dir) <*>
-        (fmap (Conf.TransportLayer . Conf.tcpPort) (Port.parsePort port))
+        (fmap (neg,) $
+            fmap (Conf.TransportLayer . Conf.tcpPort) (Port.parsePort port))
 buildTCPPort _ = Left "invalid TCP port args"
 
 buildUDP [dir] = fmap Conf.LayerCondition $
     Conf.DirectedLayer <$> (buildDirection dir) <*>
-        (pure $ Conf.TransportLayer Conf.udp)
+        (fmap (True,) $
+            pure $ Conf.TransportLayer Conf.udp)
 buildUDP _ =  Left "invalid UDP args"
 
-buildUDPPort [dir, port] = fmap Conf.LayerCondition $
+buildUDPPort [dir, (neg, port)] = fmap Conf.LayerCondition $
     Conf.DirectedLayer <$> (buildDirection dir) <*>
-        (fmap (Conf.TransportLayer . Conf.udpPort) (Port.parsePort port))
+        (fmap (neg,) $
+            fmap (Conf.TransportLayer . Conf.udpPort) (Port.parsePort port))
 buildUDPPort _ = Left "invalid UDP port args"
 
-buildDirection dir =
+buildDirection (neg, dir) = fmap (applyNegation Conf.invertDirection neg) $
     case dir of
-      "src" -> Right $ Conf.Src
-      "dst" -> Right $ Conf.Dst
-      "any" -> Right $ Conf.Any
+      "src" -> Right Conf.Src
+      "dst" -> Right Conf.Dst
+      "any" -> Right Conf.Any
+      "none" -> Right Conf.None
       _ -> Left "unknown direction"
 
-buildConnectionState [state] = fmap Conf.StateCondition $ buildState state
+applyNegation f True = id
+applyNegation f False = f
+
+buildConnectionState [(neg, state)] =
+    fmap Conf.StateCondition $ (\v -> (neg, v)) <$> buildState state
 buildConnectionState _ = fail "invalid connection state args"
 
 buildState "related" = Right $ Conf.StateRelated

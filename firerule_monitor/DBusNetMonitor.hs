@@ -11,6 +11,7 @@ import qualified DBus as D
 import qualified DBus.Client as DC
 
 import qualified NetMonitor as NM
+import qualified FireruleMonitor.NetInfo as NetInfo
 
 data DBusNetMonitor =
     DBusNetMonitor DC.Client DC.SignalHandler
@@ -111,7 +112,7 @@ getProperty client dest object interface property = do
       Left err -> fail err
       Right v -> return v
 
-getInfo client = (fmap NM.Info) .
+getInfo client = (fmap NetInfo.NetInfo) .
     (Monad.mapM (\c -> getProperty client nmdest c
                 ("org.freedesktop.NetworkManager.Connection.Active" :: String)
                 ("Id" :: String)))

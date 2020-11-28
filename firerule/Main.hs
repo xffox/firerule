@@ -18,7 +18,7 @@ data Config = Config {
 
 configParse = Config <$>
     Opt.strArgument (Opt.metavar "FILE") <*>
-    Opt.switch (Opt.short 'p' <> Opt.help "only show the rules")
+    Opt.switch (Opt.short 's' <> Opt.help "only show the rules")
 
 main = do
     config <- Opt.execParser $
@@ -28,5 +28,6 @@ main = do
         case RuleParser.parseFirewall inp >>= ConfBuilder.buildConf of
           Left err -> putStrLn $ Printf.printf "failure: %s" err
           Right fw -> if not $ dryRun config
-                         then Firewall.apply Iptables.IptablesFirewall fw
-                         else Firewall.apply Iptables.IptablesPrintFirewall fw
+                          then apply Iptables.IptablesFirewall fw
+                          else apply Iptables.IptablesPrintFirewall fw
+    where apply fh fw = Firewall.create fh fw >>= Firewall.use fh

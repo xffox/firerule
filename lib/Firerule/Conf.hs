@@ -1,3 +1,5 @@
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE TupleSections #-}
 module Firerule.Conf where
 
 import Data.Word (Word8, Word16, Word32, Word64)
@@ -9,18 +11,20 @@ import Firerule.IPv4
 import Firerule.IPv6
 import qualified Firerule.CondTree as CondTree
 import qualified Firerule.ValueSet as VS
+import qualified Firerule.BoolPair as BoolPair
 import qualified Firerule.Port as Port
+import qualified Firerule.Wrapped as Wrapped
 
 -- There is no single ordering for firewall rules over multiple
 -- layers, so ordering of rules should be explicit.
 
-data Direction = Dst | Src | Any
+data Direction = Dst | Src | Any | None
     deriving (Eq, Show)
 
 data ConnectionState = StateRelated | StateEstablished
     deriving (Eq, Ord, Show)
 
-data Link = MACInterface MacParam
+newtype Link = MACInterface MacParam
     deriving (Eq, Show)
 data Network = IPv4Network IPv4Param |
                IPv6Network IPv6Param
@@ -50,7 +54,7 @@ data Flow = Input | Output | Forward
 data Action = Accept | Drop | Reject
     deriving Show
 
-data Firewall = Firewall [Rule]
+newtype Firewall = Firewall [Rule]
     deriving Show
 
 data Layer = LinkLayer Link |
@@ -58,11 +62,16 @@ data Layer = LinkLayer Link |
              TransportLayer Transport
     deriving (Eq, Show)
 
-data DirectedLayer = DirectedLayer Direction Layer
+data DirectedLayer = DirectedLayer Direction (BoolPair.BoolPair Layer)
     deriving Show
 
 data Rule = Rule Flow Action [(Action, RuleClause)]
     deriving Show
+
+invertDirection Src = Dst
+invertDirection Dst = Src
+invertDirection Any = None
+invertDirection None = Any
 
 act :: Flow -> Action -> [(Action, RuleClause)] -> Rule
 act = Rule
@@ -90,23 +99,23 @@ newtype RuleClause = RuleClause (CondTree.CondTree Condition)
 unclause (RuleClause tr) = tr
 
 data Condition = LayerCondition DirectedLayer |
-    StateCondition ConnectionState
+    StateCondition (BoolPair.BoolPair ConnectionState)
     deriving Show
 
 class DirectedClauseable c where
-    sel :: Direction -> c -> RuleClause
+    sel :: Direction -> BoolPair.BoolPair c -> RuleClause
 
 instance DirectedClauseable Network where
-    sel dir v = RuleClause $ CondTree.Leaf $
-        LayerCondition $ DirectedLayer dir $ NetworkLayer $ v
+    sel dir (neg, v) = RuleClause $ CondTree.Leaf $
+        LayerCondition $ DirectedLayer dir (neg, NetworkLayer v)
 
 instance DirectedClauseable Transport where
-    sel dir v = RuleClause $ CondTree.Leaf $
-        LayerCondition $ DirectedLayer dir $ TransportLayer $ v
+    sel dir (neg, v) = RuleClause $ CondTree.Leaf $
+        LayerCondition $ DirectedLayer dir (neg, TransportLayer v)
 
 instance DirectedClauseable Link where
-    sel dir v = RuleClause $ CondTree.Leaf $
-        LayerCondition $ DirectedLayer dir $ LinkLayer $ v
+    sel dir (neg, v) = RuleClause $ CondTree.Leaf $
+        LayerCondition $ DirectedLayer dir (neg, LinkLayer v)
 
 state = RuleClause . CondTree.Leaf . StateCondition
 
@@ -117,95 +126,136 @@ state = RuleClause . CondTree.Leaf . StateCondition
 notRule :: RuleClause -> RuleClause
 notRule (RuleClause node) = RuleClause $ CondTree.NodeNot node
 
+instance Wrapped.WrappedMergeable Layer where
+    unwrap f (LinkLayer _) = f (extractLinkLayer, LinkLayer)
+        where extractLinkLayer (LinkLayer v) = Just v
+              extractLinkLayer _ = Nothing
+    unwrap f (NetworkLayer _) = f (extractNetworkLayer, NetworkLayer)
+        where extractNetworkLayer (NetworkLayer v) = Just v
+              extractNetworkLayer _ = Nothing
+    unwrap f (TransportLayer _) = f (extractTransportLayer, TransportLayer)
+        where extractTransportLayer (TransportLayer v) = Just v
+              extractTransportLayer _ = Nothing
+
 instance VS.Mergeable Layer where
-    mergeIntersect (LinkLayer l1) (LinkLayer l2) = LinkLayer <$> VS.mergeIntersect l1 l2
-    mergeIntersect (NetworkLayer n1) (NetworkLayer n2) = NetworkLayer <$> VS.mergeIntersect n1 n2
-    mergeIntersect (TransportLayer t1) (TransportLayer t2) = TransportLayer <$> VS.mergeIntersect t1 t2
-    mergeIntersect l1 l2 = [l1, l2]
-    mergeJoin (LinkLayer l1) (LinkLayer l2) = LinkLayer <$> VS.mergeJoin l1 l2
-    mergeJoin (NetworkLayer n1) (NetworkLayer n2) = NetworkLayer <$> VS.mergeJoin n1 n2
-    mergeJoin (TransportLayer t1) (TransportLayer t2) = TransportLayer <$> VS.mergeJoin t1 t2
-    mergeJoin l1 l2 = Nothing
+    intersection = Wrapped.intersectionWrapped
+    union = Wrapped.unionWrapped
+    emptySet = Nothing
+    universeSet = Nothing
+
+instance Wrapped.WrappedMergeable Link where
+    unwrap f (MACInterface _) = f (extractMAC, MACInterface)
+        where extractMAC (MACInterface v) = Just v
 
 instance VS.Mergeable Link where
-    mergeIntersect l1@(MACInterface v1) l2@(MACInterface v2) =
-        fmap MACInterface $ VS.mergeIntersect v1 v2
-    mergeJoin l1@(MACInterface v1) l2@(MACInterface v2) =
-        fmap MACInterface $ VS.mergeJoin v1 v2
+    intersection = Wrapped.intersectionWrapped
+    union = Wrapped.unionWrapped
+    emptySet = Nothing
+    universeSet = Nothing
+
+instance Wrapped.WrappedMergeable Network where
+    unwrap f (IPv4Network _) = f (extractIPv4Network, IPv4Network)
+        where extractIPv4Network (IPv4Network v) = Just v
+              extractIPv4Network _ = Nothing
+    unwrap f (IPv6Network _) = f (extractIPv6Network, IPv6Network)
+        where extractIPv6Network (IPv6Network v) = Just v
+              extractIPv4Network _ = Nothing
 
 instance VS.Mergeable Network where
-    mergeIntersect n1@(IPv4Network nv1) n2@(IPv4Network nv2) =
-        fmap IPv4Network $ VS.mergeIntersect nv1 nv2
-    mergeIntersect _ _ = []
-    mergeJoin n1@(IPv4Network nv1) n2@(IPv4Network nv2) =
-        fmap IPv4Network $ VS.mergeJoin nv1 nv2
-    mergeJoin _ _ = Nothing
+    intersection = Wrapped.intersectionWrapped
+    union = Wrapped.unionWrapped
+    emptySet = Nothing
+    universeSet = Nothing
+
+instance Wrapped.WrappedMergeable Transport where
+    unwrap f (UDPTransport _) = f (extractUDPTransport, UDPTransport)
+        where extractUDPTransport (UDPTransport v) = Just v
+              extractUDPTransport _ = Nothing
+    unwrap f (TCPTransport _) = f (extractTCPTransport, TCPTransport)
+        where extractTCPTransport (TCPTransport v) = Just v
+              extractTCPTransport _ = Nothing
 
 instance VS.Mergeable Transport where
-    mergeIntersect t1@(UDPTransport param1) t2@(UDPTransport param2) =
-        fmap UDPTransport $ VS.mergeIntersect param1 param2
-    mergeIntersect t1@(TCPTransport tv1) t2@(TCPTransport tv2) =
-        fmap TCPTransport $ VS.mergeIntersect tv1 tv2
-    mergeIntersect _ _ = []
-    mergeJoin (UDPTransport p1) (UDPTransport p2) =
-        fmap UDPTransport $ VS.mergeJoin p1 p2
-    mergeJoin (TCPTransport p1) (TCPTransport p2) =
-        fmap TCPTransport $ VS.mergeJoin p1 p2
-    mergeJoin t1 t2 = Nothing
+    intersection = Wrapped.intersectionWrapped
+    union = Wrapped.unionWrapped
+    emptySet = Nothing
+    universeSet = Nothing
 
 instance VS.Mergeable MacParam where
-    mergeIntersect MacProto p = [p]
-    mergeIntersect p MacProto = [p]
-    mergeIntersect p@(MacAddr a1) (MacAddr a2)
-        | a1 == a2 = [p]
-        | otherwise = []
-    mergeJoin MacProto _ = Just MacProto
-    mergeJoin _ MacProto = Just MacProto
-    mergeJoin p@(MacAddr a1) (MacAddr a2) | a1 == a2 = Just p
-    mergeJoin _ _ = Nothing
+    intersection MacProto p = VS.fromValue p
+    intersection p MacProto = VS.fromValue p
+    intersection p@(MacAddr a1) (MacAddr a2)
+      | a1 == a2 = VS.fromValue p
+      | otherwise = VS.fromCategory VS.EmptySet
+    union MacProto _ = VS.fromValue MacProto
+    union _ MacProto = VS.fromValue MacProto
+    union p@(MacAddr a1) (MacAddr a2) | a1 == a2 = VS.fromValue p
+    union _ _ = VS.fromCategory VS.SomeSet
+    emptySet = Nothing
+    universeSet = Just MacProto
 
 instance VS.Mergeable IPv4Param where
-    mergeIntersect IPv4Proto p = [p]
-    mergeIntersect p IPv4Proto = [p]
-    mergeIntersect (IPv4Addr a1) (IPv4Addr a2) =
-        fmap IPv4Addr $ VS.mergeIntersect a1 a2
-    mergeIntersect p1 p2 = [p1, p2]
-    mergeJoin IPv4Proto _ = Just IPv4Proto
-    mergeJoin _ IPv4Proto = Just IPv4Proto
-    mergeJoin (IPv4Addr a1) (IPv4Addr a2) =
-        fmap IPv4Addr $ VS.mergeJoin a1 a2
-    mergeJoin _ _ = Nothing
+    intersection IPv4Proto p = VS.fromValue p
+    intersection p IPv4Proto = VS.fromValue p
+    intersection (IPv4Addr a1) (IPv4Addr a2) =
+        Wrapped.mapSimpleValue IPv4Addr $ VS.intersection a1 a2
+    intersection v1 v2
+      | v1 == v2 = VS.fromValue v1
+      | otherwise = VS.fromCategory VS.SomeSet
+    union IPv4Proto _ = VS.fromValue IPv4Proto
+    union _ IPv4Proto = VS.fromValue IPv4Proto
+    union (IPv4Addr a1) (IPv4Addr a2) =
+        Wrapped.mapSimpleValue IPv4Addr $ VS.union a1 a2
+    union v1 v2
+      | v1 == v2 = VS.fromValue v1
+      | otherwise = VS.fromCategory VS.SomeSet
+    emptySet = Nothing
+    universeSet = Just IPv4Proto
 
 instance VS.Mergeable IPv6Param where
-    mergeIntersect IPv6Proto p = [p]
-    mergeIntersect p IPv6Proto = [p]
-    mergeIntersect p1@(IPv6Addr a1) p2@(IPv6Addr a2) =
-        fmap IPv6Addr $ VS.mergeIntersect a1 a2
-    mergeIntersect p1 p2 = [p1, p2]
-    mergeJoin IPv6Proto _ = Just IPv6Proto
-    mergeJoin _ IPv6Proto = Just IPv6Proto
-    mergeJoin (IPv6Addr a1) (IPv6Addr a2) =
-        fmap IPv6Addr $ VS.mergeJoin a1 a2
-    mergeJoin _ _ = Nothing
+    intersection IPv6Proto p = VS.fromValue p
+    intersection p IPv6Proto = VS.fromValue p
+    intersection p1@(IPv6Addr a1) p2@(IPv6Addr a2) =
+        Wrapped.mapSimpleValue IPv6Addr $ VS.intersection a1 a2
+    intersection v1 v2
+      | v1 == v2 = VS.fromValue v1
+      | otherwise = VS.fromCategory VS.SomeSet
+    union IPv6Proto _ = VS.fromValue IPv6Proto
+    union _ IPv6Proto = VS.fromValue IPv6Proto
+    union (IPv6Addr a1) (IPv6Addr a2) =
+        Wrapped.mapSimpleValue IPv6Addr $ VS.union a1 a2
+    union v1 v2
+      | v1 == v2 = VS.fromValue v1
+      | otherwise = VS.fromCategory VS.SomeSet
+    emptySet = Nothing
+    universeSet = Just IPv6Proto
 
 instance VS.Mergeable TCPParam where
-    mergeIntersect TCPProto p = [p]
-    mergeIntersect p TCPProto = [p]
-    mergeIntersect p@(TCPPort t1) (TCPPort t2)
-        | t1 == t2 = [p]
-        | otherwise = []
-    mergeJoin TCPProto _ = Just TCPProto
-    mergeJoin _ TCPProto = Just TCPProto
-    mergeJoin p@(TCPPort t1) (TCPPort t2) | t1 == t2 = Just p
-    mergeJoin _ _ = Nothing
+    intersection TCPProto p = VS.fromValue p
+    intersection p TCPProto = VS.fromValue p
+    intersection p@(TCPPort t1) (TCPPort t2)
+      | t1 == t2 = VS.fromValue p
+      | otherwise = VS.fromCategory VS.SomeSet
+    union TCPProto _ = VS.fromValue TCPProto
+    union _ TCPProto = VS.fromValue TCPProto
+    union p@(TCPPort t1) (TCPPort t2) | t1 == t2 = VS.fromValue p
+    union v1 v2
+      | v1 == v2 = VS.fromValue v1
+      | otherwise = VS.fromCategory VS.SomeSet
+    emptySet = Nothing
+    universeSet = Just TCPProto
 
 instance VS.Mergeable UDPParam where
-    mergeIntersect UDPProto p = [p]
-    mergeIntersect p UDPProto = [p]
-    mergeIntersect p@(UDPPort t1) (UDPPort t2)
-        | t1 == t2 = [p]
-        | otherwise = []
-    mergeJoin UDPProto _ = Just UDPProto
-    mergeJoin _ UDPProto = Just UDPProto
-    mergeJoin p@(UDPPort t1) (UDPPort t2) | t1 == t2 = Just p
-    mergeJoin _ _ = Nothing
+    intersection UDPProto p = VS.fromValue p
+    intersection p UDPProto = VS.fromValue p
+    intersection p@(UDPPort t1) (UDPPort t2)
+      | t1 == t2 = VS.fromValue p
+      | otherwise = VS.fromCategory VS.SomeSet
+    union UDPProto _ = VS.fromValue UDPProto
+    union _ UDPProto = VS.fromValue UDPProto
+    union p@(UDPPort t1) (UDPPort t2) | t1 == t2 = VS.fromValue p
+    union v1 v2
+      | v1 == v2 = VS.fromValue v1
+      | otherwise = VS.fromCategory VS.SomeSet
+    emptySet = Nothing
+    universeSet = Just UDPProto
